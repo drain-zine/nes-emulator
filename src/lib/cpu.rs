@@ -1,4 +1,4 @@
-use super::instruction::{AddressingMode, Mnemonic, INSTRUCTION_TABLE};
+use super::instruction::{AddressingMode, DISPATCH_TABLE};
 
 const SIGN_BIT: u8 = 0b1000_0000;
 
@@ -18,7 +18,7 @@ pub struct CPU {
     // 8 bit status register ->
     // Carry Flag (C), Zero Flag (Z), Interrupt Disable (I), Decimal Mode (D), Break Command (B), Overflow Flag (O), Negative Flag (N)
     pub status: u8,
-    memory: [u8; 0xFFFF],
+    memory: [u8; 0x10000],
 }
 
 impl CPU {
@@ -29,7 +29,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: 0,
-            memory: [0; 0xFFFF],
+            memory: [0; 0x10000],
         }
     }
 
@@ -58,6 +58,7 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.status = 0;
+        // self.memory = [0; 0x10000];
 
         self.program_counter = self.mem_read_u16(PROGRAM_COUNTER_ADDRESS);
     }
@@ -78,71 +79,62 @@ impl CPU {
         loop {
             let opcode = self.mem_read(self.program_counter);
 
-            let instruction = INSTRUCTION_TABLE[opcode as usize]
+            if opcode == 0 {
+                return;
+            }
+
+            let dispatch = DISPATCH_TABLE[opcode as usize]
                 .as_ref()
                 .unwrap_or_else(|| panic!("Unknown opcode: {:#X}", opcode));
 
-            self.program_counter += 1;
+            let instruction = dispatch.instruction;
+            let handler = dispatch.handler;
+            handler(self, &instruction.addressing_mode);
 
-            match instruction.mnemonic {
-                Mnemonic::ADC => self.adc(&instruction.addressing_mode),
-                Mnemonic::SBC => self.sbc(&instruction.addressing_mode),
-                Mnemonic::AND => self.and(&instruction.addressing_mode),
-                Mnemonic::TAX => self.tax(),
-                Mnemonic::LDA => self.lda(&instruction.addressing_mode),
-                Mnemonic::LDX => self.ldx(&instruction.addressing_mode),
-                Mnemonic::LDY => self.ldy(&instruction.addressing_mode),
-                Mnemonic::INX => self.inx(),
-                Mnemonic::BRK => return,
-                _ => todo!(),
-            }
-
-            self.program_counter += (instruction.bytes - 1) as u16;
+            self.program_counter += instruction.bytes as u16;
         }
     }
 
     fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
+        let peek = self.program_counter.wrapping_add(1);
+
         match mode {
-            AddressingMode::Immediate => self.program_counter,
-            AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
+            AddressingMode::Immediate => peek,
+            AddressingMode::ZeroPage => self.mem_read(peek) as u16,
             AddressingMode::ZeroPage_X => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(peek);
                 base.wrapping_add(self.register_x) as u16
             }
             AddressingMode::ZeroPage_Y => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(peek);
                 base.wrapping_add(self.register_y) as u16
             }
-            AddressingMode::Absolute => self.mem_read_u16(self.program_counter),
+            AddressingMode::Absolute => self.mem_read_u16(peek),
             AddressingMode::Absolute_X => {
-                let base = self.mem_read_u16(self.program_counter);
+                let base = self.mem_read_u16(peek);
                 base.wrapping_add(self.register_x as u16)
             }
             AddressingMode::Absolute_Y => {
-                let base = self.mem_read_u16(self.program_counter);
+                let base = self.mem_read_u16(peek);
                 base.wrapping_add(self.register_y as u16)
             }
             AddressingMode::Indirect_X => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(peek);
                 let ptr = base.wrapping_add(self.register_x);
-
                 self.mem_read_u16(ptr as u16)
             }
             AddressingMode::Indirect_Y => {
-                let base = self.mem_read(self.program_counter);
-
+                let base = self.mem_read(peek);
                 let deref_base = self.mem_read_u16(base as u16);
                 deref_base.wrapping_add(self.register_y as u16)
             }
             AddressingMode::Relative => {
-                let offset = self.mem_read(self.program_counter) as i8;
-                self.program_counter
-                    .wrapping_add(1)
-                    .wrapping_add(offset as u16)
+                let offset = self.mem_read(peek) as i8;
+                peek.wrapping_add(1).wrapping_add(offset as u16)
             }
             // 6502 bug: if low byte is 0xFF, high byte doesnt wrap correctly
             AddressingMode::Indirect => {
-                let addr = self.mem_read_u16(self.program_counter);
+                let addr = self.mem_read_u16(peek);
                 let lo = self.mem_read(addr);
                 let hi = if addr & 0x00FF == 0x00FF {
                     // emulate page boundary hardware bug
@@ -157,21 +149,21 @@ impl CPU {
         }
     }
 
-    fn and(&mut self, addressing_mode: &AddressingMode) {
+    pub fn and(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
         self.accumulator &= m;
     }
 
-    fn adc(&mut self, addressing_mode: &AddressingMode) {
+    pub fn adc(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
         self.add_to_accumulator(m);
     }
 
-    fn sbc(&mut self, addressing_mode: &AddressingMode) {
+    pub fn sbc(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
@@ -180,13 +172,13 @@ impl CPU {
         self.add_to_accumulator(inverse_m);
     }
 
-    fn tax(&mut self) {
+    pub fn tax(&mut self, _: &AddressingMode) {
         self.register_x = self.accumulator;
 
         self.update_zero_negative_flags(self.register_x)
     }
 
-    fn lda(&mut self, addressing_mode: &AddressingMode) {
+    pub fn lda(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
         self.accumulator = m;
@@ -194,7 +186,7 @@ impl CPU {
         self.update_zero_negative_flags(self.accumulator);
     }
 
-    fn ldx(&mut self, addressing_mode: &AddressingMode) {
+    pub fn ldx(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
         self.register_x = m;
@@ -202,7 +194,7 @@ impl CPU {
         self.update_zero_negative_flags(self.register_x);
     }
 
-    fn ldy(&mut self, addressing_mode: &AddressingMode) {
+    pub fn ldy(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
         self.register_y = m;
@@ -210,7 +202,7 @@ impl CPU {
         self.update_zero_negative_flags(self.register_y);
     }
 
-    fn inx(&mut self) {
+    pub fn inx(&mut self, _: &AddressingMode) {
         self.register_x = self.register_x.wrapping_add(1);
 
         self.update_zero_negative_flags(self.register_x)
@@ -302,7 +294,7 @@ mod test {
     }
 
     #[test]
-    fn test_0xa9() {
+    fn test_lda_immediate() {
         let mut cpu = CPU::new();
 
         cpu.load_rom_and_run(vec![0xa9, 0x05, 0x00]);
@@ -313,7 +305,7 @@ mod test {
     }
 
     #[test]
-    fn test_0xa9_lda_zero_status() {
+    fn test_lda_immediate_zero_status() {
         let mut cpu = CPU::new();
 
         cpu.load_rom_and_run(vec![0xa9, 0x00, 0x00]);
@@ -322,10 +314,89 @@ mod test {
     }
 
     #[test]
-    fn test_0xa9_lda_negative_status() {
+    fn test_lda_immediate_negative_status() {
         let mut cpu = CPU::new();
         cpu.load_rom_and_run(vec![0xa9, 0x81, 0x00]);
         assert!(cpu.status & NEGATIVE_FLAG_MASK != 0);
+    }
+
+    #[test]
+    fn test_lda_zero_page() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xA5, 0x10, 0x00]);
+        cpu.reset();
+        cpu.memory[0x10] = 0x84;
+        cpu.run();
+
+        assert_eq!(cpu.accumulator, 0x84);
+    }
+
+    #[test]
+    fn test_lda_zero_page_x() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xB5, 0x10, 0x00]);
+        cpu.reset();
+        cpu.register_x = 0x01;
+        cpu.memory[0x11] = 0x55;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x55);
+    }
+
+    #[test]
+    fn test_lda_absolute() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xAD, 0x34, 0x12, 0x00]);
+        cpu.reset();
+        cpu.memory[0x1234] = 0x99;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x99);
+    }
+
+    #[test]
+    fn test_lda_absolute_x() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xBD, 0x34, 0x12, 0x00]);
+        cpu.reset();
+        cpu.register_x = 0x01;
+        cpu.memory[0x1235] = 0x10;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x10);
+    }
+
+    #[test]
+    fn test_lda_absolute_y() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xB9, 0x34, 0x12, 0x00]);
+        cpu.reset();
+        cpu.register_y = 0x01;
+        cpu.memory[0x1235] = 0x20;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x20);
+    }
+
+    #[test]
+    fn test_lda_indirect_x() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xA1, 0x10, 0x00]);
+        cpu.reset();
+        cpu.register_x = 0x04;
+        cpu.memory[0x14] = 0x80;
+        cpu.memory[0x80] = 0xAB;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0xAB);
+    }
+
+    #[test]
+    fn test_lda_indirect_y() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xB1, 0x10, 0x00]);
+        cpu.reset();
+        cpu.register_y = 0x04;
+        cpu.memory[0x10] = 0x00;
+        cpu.memory[0x11] = 0x80;
+        cpu.memory[0x8004] = 0xCD;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0xCD);
     }
 
     #[test]
