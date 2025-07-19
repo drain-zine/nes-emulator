@@ -168,11 +168,11 @@ impl CPU {
     }
 
     fn update_zero_negative_flags(&mut self, value: u8) {
-        self.update_zero_flags(value);
-        self.update_negative_flags(value);
+        self.update_zero_flag(value);
+        self.update_negative_flag(value);
     }
 
-    fn update_zero_flags(&mut self, value: u8) {
+    fn update_zero_flag(&mut self, value: u8) {
         if value == 0 {
             self.status |= ZERO_FLAG_MASK;
         } else {
@@ -180,7 +180,7 @@ impl CPU {
         }
     }
 
-    fn update_negative_flags(&mut self, value: u8) {
+    fn update_negative_flag(&mut self, value: u8) {
         if value & 0b1000_0000 != 0 {
             self.status |= NEGATIVE_FLAG_MASK;
         } else {
