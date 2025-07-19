@@ -181,24 +181,24 @@ impl CPU {
 
     fn lda(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
-        let param = self.mem_read(addr);
-        self.accumulator = param;
+        let m = self.mem_read(addr);
+        self.accumulator = m;
 
         self.update_zero_negative_flags(self.accumulator);
     }
 
     fn ldx(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
-        let param = self.mem_read(addr);
-        self.register_x = param;
+        let m = self.mem_read(addr);
+        self.register_x = m;
 
         self.update_zero_negative_flags(self.register_x);
     }
 
     fn ldy(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
-        let param = self.mem_read(addr);
-        self.register_y = param;
+        let m = self.mem_read(addr);
+        self.register_y = m;
 
         self.update_zero_negative_flags(self.register_y);
     }
