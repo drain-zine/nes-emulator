@@ -127,6 +127,9 @@ impl CPU {
                 let deref_base = self.mem_read_u16(base as u16);
                 deref_base.wrapping_add(self.register_y as u16)
             }
+            AddressingMode::Relative => todo!(),
+            AddressingMode::Indirect => todo!(),
+            AddressingMode::Accumulator => todo!(),
             AddressingMode::Implied => 0,
         }
     }
