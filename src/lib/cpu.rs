@@ -3,8 +3,12 @@ use super::instruction::{AddressingMode, Mnemonic, INSTRUCTION_TABLE};
 const PROGRAM_START_ADDRESS: usize = 0x8000;
 const PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;
 
+const CARRY_FLAG_MASK: u8 = 0b0000_0001;
 const ZERO_FLAG_MASK: u8 = 0b0000_0010;
-const NEGATIVE_FLAG_MASK: u8 = 0b1000_0000;
+const OVERFLOW_FLAG_MASK: u8 = 0b0010_0000;
+const NEGATIVE_FLAG_MASK: u8 = 0b0100_0000;
+
+const SIGN_BIT: u8 = 0b1000_0000;
 
 pub struct CPU {
     pub accumulator: u8,
@@ -133,7 +137,7 @@ impl CPU {
                     .wrapping_add(1)
                     .wrapping_add(offset as u16)
             }
-            // 6502 bug: if low byte is 0xFF, high byte doesn't wrap correctly
+            // 6502 bug: if low byte is 0xFF, high byte doesnt wrap correctly
             AddressingMode::Indirect => {
                 let addr = self.mem_read_u16(self.program_counter);
                 let lo = self.mem_read(addr);
@@ -148,6 +152,25 @@ impl CPU {
             AddressingMode::Accumulator => panic!("AddressingMode is implied"),
             AddressingMode::Implied => panic!("AddressMode is implied"),
         }
+    }
+
+    fn adc(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let m = self.mem_read(addr);
+
+        let carry = ((self.status & CARRY_FLAG_MASK) != 0) as u8;
+
+        let (initial_sum, carry_initial) = self.accumulator.overflowing_add(m);
+        let (result, carry_result) = initial_sum.overflowing_add(carry);
+
+        let carry = carry_initial || carry_result;
+        let overflow = ((!(self.accumulator ^ m) & (self.accumulator ^ result)) & SIGN_BIT) != 0;
+
+        self.accumulator = result;
+
+        self.update_carry_flag(carry);
+        self.update_overflow_flag(overflow);
+        self.update_zero_negative_flags(self.accumulator);
     }
 
     fn tax(&mut self) {
@@ -192,19 +215,23 @@ impl CPU {
     }
 
     fn update_zero_flag(&mut self, value: u8) {
-        if value == 0 {
-            self.status |= ZERO_FLAG_MASK;
-        } else {
-            self.status &= !ZERO_FLAG_MASK;
-        }
+        self.update_status_flag(ZERO_FLAG_MASK, value == 0);
     }
 
     fn update_negative_flag(&mut self, value: u8) {
-        if value & 0b1000_0000 != 0 {
-            self.status |= NEGATIVE_FLAG_MASK;
-        } else {
-            self.status &= !NEGATIVE_FLAG_MASK;
-        }
+        self.update_status_flag(NEGATIVE_FLAG_MASK, value & SIGN_BIT != 0);
+    }
+
+    fn update_carry_flag(&mut self, carry: bool) {
+        self.update_status_flag(CARRY_FLAG_MASK, carry);
+    }
+
+    fn update_overflow_flag(&mut self, overflow: bool) {
+        self.update_status_flag(OVERFLOW_FLAG_MASK, overflow);
+    }
+
+    fn update_status_flag(&mut self, mask: u8, condition: bool) {
+        self.status = (self.status & !mask) | (if condition { mask } else { 0 });
     }
 }
 
