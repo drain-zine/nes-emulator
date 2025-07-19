@@ -1,5 +1,7 @@
 use super::instruction::{AddressingMode, Mnemonic, INSTRUCTION_TABLE};
 
+const SIGN_BIT: u8 = 0b1000_0000;
+
 const PROGRAM_START_ADDRESS: usize = 0x8000;
 const PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;
 
@@ -7,8 +9,6 @@ const CARRY_FLAG_MASK: u8 = 0b0000_0001;
 const ZERO_FLAG_MASK: u8 = 0b0000_0010;
 const OVERFLOW_FLAG_MASK: u8 = 0b0010_0000;
 const NEGATIVE_FLAG_MASK: u8 = 0b0100_0000;
-
-const SIGN_BIT: u8 = 0b1000_0000;
 
 pub struct CPU {
     pub accumulator: u8,
@@ -85,6 +85,9 @@ impl CPU {
             self.program_counter += 1;
 
             match instruction.mnemonic {
+                Mnemonic::ADC => self.adc(&instruction.addressing_mode),
+                Mnemonic::SBC => self.sbc(&instruction.addressing_mode),
+                Mnemonic::AND => self.and(&instruction.addressing_mode),
                 Mnemonic::TAX => self.tax(),
                 Mnemonic::LDA => self.lda(&instruction.addressing_mode),
                 Mnemonic::LDX => self.ldx(&instruction.addressing_mode),
@@ -154,23 +157,27 @@ impl CPU {
         }
     }
 
+    fn and(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let m = self.mem_read(addr);
+
+        self.accumulator &= m;
+    }
+
     fn adc(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
-        let carry = ((self.status & CARRY_FLAG_MASK) != 0) as u8;
+        self.add_to_accumulator(m);
+    }
 
-        let (initial_sum, carry_initial) = self.accumulator.overflowing_add(m);
-        let (result, carry_result) = initial_sum.overflowing_add(carry);
+    fn sbc(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let m = self.mem_read(addr);
 
-        let carry = carry_initial || carry_result;
-        let overflow = ((!(self.accumulator ^ m) & (self.accumulator ^ result)) & SIGN_BIT) != 0;
+        let inverse_m = !m + 1;
 
-        self.accumulator = result;
-
-        self.update_carry_flag(carry);
-        self.update_overflow_flag(overflow);
-        self.update_zero_negative_flags(self.accumulator);
+        self.add_to_accumulator(inverse_m);
     }
 
     fn tax(&mut self) {
@@ -207,6 +214,23 @@ impl CPU {
         self.register_x = self.register_x.wrapping_add(1);
 
         self.update_zero_negative_flags(self.register_x)
+    }
+
+    fn add_to_accumulator(&mut self, value: u8) {
+        let carry = ((self.status & CARRY_FLAG_MASK) != 0) as u8;
+
+        let (initial_sum, carry_initial) = self.accumulator.overflowing_add(value);
+        let (result, carry_result) = initial_sum.overflowing_add(carry);
+
+        let carry = carry_initial || carry_result;
+        let overflow =
+            ((!(self.accumulator ^ value) & (self.accumulator ^ result)) & SIGN_BIT) != 0;
+
+        self.accumulator = result;
+
+        self.update_carry_flag(carry);
+        self.update_overflow_flag(overflow);
+        self.update_zero_negative_flags(self.accumulator);
     }
 
     fn update_zero_negative_flags(&mut self, value: u8) {
