@@ -1,4 +1,4 @@
-use super::instruction::{AddressingMode, Mnemonic, INSTRUCTION_TABLE};
+use super::instruction::{AddressingMode, Instruction, DISPATCH_TABLE};
 
 const SIGN_BIT: u8 = 0b1000_0000;
 
@@ -18,7 +18,7 @@ pub struct CPU {
     // 8 bit status register ->
     // Carry Flag (C), Zero Flag (Z), Interrupt Disable (I), Decimal Mode (D), Break Command (B), Overflow Flag (O), Negative Flag (N)
     pub status: u8,
-    memory: [u8; 0xFFFF],
+    memory: [u8; 0x10000],
 }
 
 impl CPU {
@@ -29,7 +29,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: 0,
-            memory: [0; 0xFFFF],
+            memory: [0; 0x10000],
         }
     }
 
@@ -78,32 +78,26 @@ impl CPU {
         loop {
             let opcode = self.mem_read(self.program_counter);
 
-            let instruction = INSTRUCTION_TABLE[opcode as usize]
+            if opcode == 0 {
+                return;
+            }
+
+            let dispatch = DISPATCH_TABLE[opcode as usize]
                 .as_ref()
                 .unwrap_or_else(|| panic!("Unknown opcode: {:#X}", opcode));
 
-            self.program_counter += 1;
+            let instruction = dispatch.instruction;
+            let handler = dispatch.handler;
 
-            match instruction.mnemonic {
-                Mnemonic::ADC => self.adc(&instruction.addressing_mode),
-                Mnemonic::SBC => self.sbc(&instruction.addressing_mode),
-                Mnemonic::AND => self.and(&instruction.addressing_mode),
-                Mnemonic::TAX => self.tax(),
-                Mnemonic::LDA => self.lda(&instruction.addressing_mode),
-                Mnemonic::LDX => self.ldx(&instruction.addressing_mode),
-                Mnemonic::LDY => self.ldy(&instruction.addressing_mode),
-                Mnemonic::INX => self.inx(),
-                Mnemonic::BRK => return,
-                _ => todo!(),
-            }
+            handler(self, &instruction.addressing_mode);
 
-            self.program_counter += (instruction.bytes - 1) as u16;
+            self.program_counter += instruction.bytes as u16;
         }
     }
 
     fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
         match mode {
-            AddressingMode::Immediate => self.program_counter,
+            AddressingMode::Immediate => self.program_counter.wrapping_add(1),
             AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
             AddressingMode::ZeroPage_X => {
                 let base = self.mem_read(self.program_counter);
@@ -157,21 +151,21 @@ impl CPU {
         }
     }
 
-    fn and(&mut self, addressing_mode: &AddressingMode) {
+    pub fn and(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
         self.accumulator &= m;
     }
 
-    fn adc(&mut self, addressing_mode: &AddressingMode) {
+    pub fn adc(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
         self.add_to_accumulator(m);
     }
 
-    fn sbc(&mut self, addressing_mode: &AddressingMode) {
+    pub fn sbc(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
@@ -180,13 +174,13 @@ impl CPU {
         self.add_to_accumulator(inverse_m);
     }
 
-    fn tax(&mut self) {
+    pub fn tax(&mut self, _: &AddressingMode) {
         self.register_x = self.accumulator;
 
         self.update_zero_negative_flags(self.register_x)
     }
 
-    fn lda(&mut self, addressing_mode: &AddressingMode) {
+    pub fn lda(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
         self.accumulator = m;
@@ -194,7 +188,7 @@ impl CPU {
         self.update_zero_negative_flags(self.accumulator);
     }
 
-    fn ldx(&mut self, addressing_mode: &AddressingMode) {
+    pub fn ldx(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
         self.register_x = m;
@@ -202,7 +196,7 @@ impl CPU {
         self.update_zero_negative_flags(self.register_x);
     }
 
-    fn ldy(&mut self, addressing_mode: &AddressingMode) {
+    pub fn ldy(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
         self.register_y = m;
@@ -210,7 +204,7 @@ impl CPU {
         self.update_zero_negative_flags(self.register_y);
     }
 
-    fn inx(&mut self) {
+    pub fn inx(&mut self, _: &AddressingMode) {
         self.register_x = self.register_x.wrapping_add(1);
 
         self.update_zero_negative_flags(self.register_x)
