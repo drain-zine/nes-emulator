@@ -78,8 +78,8 @@ impl CPU {
         loop {
             let opcode = self.mem_read(self.program_counter);
 
-            let instruction = INSTRUCTION_TABLE
-                .get(&opcode)
+            let instruction = INSTRUCTION_TABLE[opcode as usize]
+                .as_ref()
                 .unwrap_or_else(|| panic!("Unknown opcode: {:#X}", opcode));
 
             self.program_counter += 1;
@@ -175,7 +175,7 @@ impl CPU {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
-        let inverse_m = !m + 1;
+        let (inverse_m, _) = (!m).overflowing_add(1);
 
         self.add_to_accumulator(inverse_m);
     }
