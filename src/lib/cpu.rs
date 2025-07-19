@@ -341,4 +341,54 @@ mod test {
 
         assert!(cpu.status & NEGATIVE_FLAG_MASK != 0);
     }
+
+    #[test]
+    fn test_update_status_flag_sets_flag_when_condition_true() {
+        let mut cpu = CPU::new();
+        cpu.status = 0b0000_0000;
+
+        cpu.update_status_flag(0b0000_0010, true);
+
+        assert_eq!(cpu.status, 0b0000_0010);
+    }
+
+    #[test]
+    fn test_update_status_flag_does_not_change_other_flags() {
+        let mut cpu = CPU::new();
+        cpu.status = 0b1010_0000;
+
+        cpu.update_status_flag(0b0000_0010, true);
+
+        assert_eq!(cpu.status, 0b1010_0010);
+    }
+
+    #[test]
+    fn test_update_status_flag_clears_flag_when_condition_false() {
+        let mut cpu = CPU::new();
+        cpu.status = 0b1111_1111;
+
+        cpu.update_status_flag(0b0000_0010, false);
+
+        assert_eq!(cpu.status, 0b1111_1101);
+    }
+
+    #[test]
+    fn test_update_status_flag_no_change_when_flag_already_clear() {
+        let mut cpu = CPU::new();
+        cpu.status = 0b0000_0000;
+
+        cpu.update_status_flag(0b0000_0010, false);
+
+        assert_eq!(cpu.status, 0b0000_0000);
+    }
+
+    #[test]
+    fn test_update_status_flag_idempotent_set() {
+        let mut cpu = CPU::new();
+        cpu.status = 0b0000_0010;
+
+        cpu.update_status_flag(0b0000_0010, true);
+
+        assert_eq!(cpu.status, 0b0000_0010);
+    }
 }
