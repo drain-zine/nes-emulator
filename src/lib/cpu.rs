@@ -83,6 +83,8 @@ impl CPU {
             match instruction.mnemonic {
                 Mnemonic::TAX => self.tax(),
                 Mnemonic::LDA => self.lda(&instruction.addressing_mode),
+                Mnemonic::LDX => self.ldx(&instruction.addressing_mode),
+                Mnemonic::LDY => self.ldy(&instruction.addressing_mode),
                 Mnemonic::INX => self.inx(),
                 Mnemonic::BRK => return,
                 _ => todo!(),
@@ -135,7 +137,7 @@ impl CPU {
         self.update_zero_negative_flags(self.register_x)
     }
 
-    pub fn lda(&mut self, addressing_mode: &AddressingMode) {
+    fn lda(&mut self, addressing_mode: &AddressingMode) {
         let addr = self.get_operand_address(addressing_mode);
         let param = self.mem_read(addr);
         self.accumulator = param;
@@ -143,18 +145,26 @@ impl CPU {
         self.update_zero_negative_flags(self.accumulator);
     }
 
+    fn ldx(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let param = self.mem_read(addr);
+        self.register_x = param;
+
+        self.update_zero_negative_flags(self.register_x);
+    }
+
+    fn ldy(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let param = self.mem_read(addr);
+        self.register_y = param;
+
+        self.update_zero_negative_flags(self.register_y);
+    }
+
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
 
         self.update_zero_negative_flags(self.register_x)
-    }
-
-    fn load_register(&mut self, mode: &AddressingMode, target: &mut u8) {
-        let addr = self.get_operand_address(mode);
-        let value = self.mem_read(addr);
-
-        *target = value;
-        self.update_zero_negative_flags(*target);
     }
 
     fn update_zero_negative_flags(&mut self, value: u8) {
