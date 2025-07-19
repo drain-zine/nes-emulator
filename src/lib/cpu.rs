@@ -127,10 +127,26 @@ impl CPU {
                 let deref_base = self.mem_read_u16(base as u16);
                 deref_base.wrapping_add(self.register_y as u16)
             }
-            AddressingMode::Relative => todo!(),
-            AddressingMode::Indirect => todo!(),
-            AddressingMode::Accumulator => todo!(),
-            AddressingMode::Implied => 0,
+            AddressingMode::Relative => {
+                let offset = self.mem_read(self.program_counter) as i8;
+                self.program_counter
+                    .wrapping_add(1)
+                    .wrapping_add(offset as u16)
+            }
+            // 6502 bug: if low byte is 0xFF, high byte doesn't wrap correctly
+            AddressingMode::Indirect => {
+                let addr = self.mem_read_u16(self.program_counter);
+                let lo = self.mem_read(addr);
+                let hi = if addr & 0x00FF == 0x00FF {
+                    // emulate page boundary hardware bug
+                    self.mem_read(addr & 0xFF00)
+                } else {
+                    self.mem_read(addr + 1)
+                };
+                u16::from_le_bytes([lo, hi])
+            }
+            AddressingMode::Accumulator => panic!("AddressingMode is implied"),
+            AddressingMode::Implied => panic!("AddressMode is implied"),
         }
     }
 
