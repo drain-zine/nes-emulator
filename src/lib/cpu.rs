@@ -58,6 +58,7 @@ impl CPU {
         self.register_x = 0;
         self.register_y = 0;
         self.status = 0;
+        // self.memory = [0; 0x10000];
 
         self.program_counter = self.mem_read_u16(PROGRAM_COUNTER_ADDRESS);
     }
@@ -88,7 +89,6 @@ impl CPU {
 
             let instruction = dispatch.instruction;
             let handler = dispatch.handler;
-
             handler(self, &instruction.addressing_mode);
 
             self.program_counter += instruction.bytes as u16;
@@ -96,47 +96,45 @@ impl CPU {
     }
 
     fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
+        let peek = self.program_counter.wrapping_add(1);
+
         match mode {
-            AddressingMode::Immediate => self.program_counter.wrapping_add(1),
-            AddressingMode::ZeroPage => self.mem_read(self.program_counter) as u16,
+            AddressingMode::Immediate => peek,
+            AddressingMode::ZeroPage => self.mem_read(peek) as u16,
             AddressingMode::ZeroPage_X => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(peek);
                 base.wrapping_add(self.register_x) as u16
             }
             AddressingMode::ZeroPage_Y => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(peek);
                 base.wrapping_add(self.register_y) as u16
             }
-            AddressingMode::Absolute => self.mem_read_u16(self.program_counter),
+            AddressingMode::Absolute => self.mem_read_u16(peek),
             AddressingMode::Absolute_X => {
-                let base = self.mem_read_u16(self.program_counter);
+                let base = self.mem_read_u16(peek);
                 base.wrapping_add(self.register_x as u16)
             }
             AddressingMode::Absolute_Y => {
-                let base = self.mem_read_u16(self.program_counter);
+                let base = self.mem_read_u16(peek);
                 base.wrapping_add(self.register_y as u16)
             }
             AddressingMode::Indirect_X => {
-                let base = self.mem_read(self.program_counter);
+                let base = self.mem_read(peek);
                 let ptr = base.wrapping_add(self.register_x);
-
                 self.mem_read_u16(ptr as u16)
             }
             AddressingMode::Indirect_Y => {
-                let base = self.mem_read(self.program_counter);
-
+                let base = self.mem_read(peek);
                 let deref_base = self.mem_read_u16(base as u16);
                 deref_base.wrapping_add(self.register_y as u16)
             }
             AddressingMode::Relative => {
-                let offset = self.mem_read(self.program_counter) as i8;
-                self.program_counter
-                    .wrapping_add(1)
-                    .wrapping_add(offset as u16)
+                let offset = self.mem_read(peek) as i8;
+                peek.wrapping_add(1).wrapping_add(offset as u16)
             }
             // 6502 bug: if low byte is 0xFF, high byte doesnt wrap correctly
             AddressingMode::Indirect => {
-                let addr = self.mem_read_u16(self.program_counter);
+                let addr = self.mem_read_u16(peek);
                 let lo = self.mem_read(addr);
                 let hi = if addr & 0x00FF == 0x00FF {
                     // emulate page boundary hardware bug
@@ -296,7 +294,7 @@ mod test {
     }
 
     #[test]
-    fn test_0xa9() {
+    fn test_lda_immediate() {
         let mut cpu = CPU::new();
 
         cpu.load_rom_and_run(vec![0xa9, 0x05, 0x00]);
@@ -307,7 +305,7 @@ mod test {
     }
 
     #[test]
-    fn test_0xa9_lda_zero_status() {
+    fn test_lda_immediate_zero_status() {
         let mut cpu = CPU::new();
 
         cpu.load_rom_and_run(vec![0xa9, 0x00, 0x00]);
@@ -316,10 +314,89 @@ mod test {
     }
 
     #[test]
-    fn test_0xa9_lda_negative_status() {
+    fn test_lda_immediate_negative_status() {
         let mut cpu = CPU::new();
         cpu.load_rom_and_run(vec![0xa9, 0x81, 0x00]);
         assert!(cpu.status & NEGATIVE_FLAG_MASK != 0);
+    }
+
+    #[test]
+    fn test_lda_zero_page() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xA5, 0x10, 0x00]);
+        cpu.reset();
+        cpu.memory[0x10] = 0x84;
+        cpu.run();
+
+        assert_eq!(cpu.accumulator, 0x84);
+    }
+
+    #[test]
+    fn test_lda_zero_page_x() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xB5, 0x10, 0x00]);
+        cpu.reset();
+        cpu.register_x = 0x01;
+        cpu.memory[0x11] = 0x55;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x55);
+    }
+
+    #[test]
+    fn test_lda_absolute() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xAD, 0x34, 0x12, 0x00]);
+        cpu.reset();
+        cpu.memory[0x1234] = 0x99;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x99);
+    }
+
+    #[test]
+    fn test_lda_absolute_x() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xBD, 0x34, 0x12, 0x00]);
+        cpu.reset();
+        cpu.register_x = 0x01;
+        cpu.memory[0x1235] = 0x10;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x10);
+    }
+
+    #[test]
+    fn test_lda_absolute_y() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xB9, 0x34, 0x12, 0x00]);
+        cpu.reset();
+        cpu.register_y = 0x01;
+        cpu.memory[0x1235] = 0x20;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0x20);
+    }
+
+    #[test]
+    fn test_lda_indirect_x() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xA1, 0x10, 0x00]);
+        cpu.reset();
+        cpu.register_x = 0x04;
+        cpu.memory[0x14] = 0x80;
+        cpu.memory[0x80] = 0xAB;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0xAB);
+    }
+
+    #[test]
+    fn test_lda_indirect_y() {
+        let mut cpu = CPU::new();
+        cpu.load_rom(vec![0xB1, 0x10, 0x00]);
+        cpu.reset();
+        cpu.register_y = 0x04;
+        cpu.memory[0x10] = 0x00;
+        cpu.memory[0x11] = 0x80;
+        cpu.memory[0x8004] = 0xCD;
+        cpu.run();
+        assert_eq!(cpu.accumulator, 0xCD);
     }
 
     #[test]
