@@ -309,8 +309,8 @@ const INSTRUCTIONS: &[Instruction] = &[
     instruction!(TYA, 0x98, 1, 2, Implied),
 ];
 
-const fn generate_instruction_table() -> [Option<Instruction>; 256] {
-    let mut table: [Option<Instruction>; 256] = [None; 256];
+const fn generate_instruction_table() -> [Option<Instruction>; 0x100] {
+    let mut table: [Option<Instruction>; 0x100] = [None; 0x100];
     let mut i = 0;
 
     while i < INSTRUCTIONS.len() {
@@ -322,4 +322,4 @@ const fn generate_instruction_table() -> [Option<Instruction>; 256] {
     table
 }
 
-pub static INSTRUCTION_TABLE: [Option<Instruction>; 256] = generate_instruction_table();
+pub static INSTRUCTION_TABLE: [Option<Instruction>; 0x100] = generate_instruction_table();
