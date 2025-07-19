@@ -1,4 +1,4 @@
-use super::instruction::{AddressingMode, Instruction, DISPATCH_TABLE};
+use super::instruction::{AddressingMode, DISPATCH_TABLE};
 
 const SIGN_BIT: u8 = 0b1000_0000;
 
