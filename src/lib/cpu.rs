@@ -1,12 +1,20 @@
 use super::instruction::{AddressingMode, DISPATCH_TABLE};
 
 const SIGN_BIT: u8 = 0b1000_0000;
+const LSB_BIT: u8 = 0b0000_0001;
+const OVERFLOW_BIT: u8 = 0b0100_0000; // Bit 6
 
 const PROGRAM_START_ADDRESS: usize = 0x8000;
 const PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;
+const STACK_BASE_ADDRESS: u16 = 0x0100;
+const INITIAL_STACK_POINTER_ADDRESS: u8 = 0xFD;
+const HALT_ADDRESS: u16 = 0xFFFF;
 
 const CARRY_FLAG_MASK: u8 = 0b0000_0001;
 const ZERO_FLAG_MASK: u8 = 0b0000_0010;
+const INTERRUPT_DISABLE_FLAG_MASK: u8 = 0b0000_0100;
+const DECIMAL_FLAG_MASK: u8 = 0b0000_1000;
+const BREAK_FLAG_MASK: u8 = 0b0001_0000;
 const OVERFLOW_FLAG_MASK: u8 = 0b0010_0000;
 const NEGATIVE_FLAG_MASK: u8 = 0b0100_0000;
 
@@ -15,6 +23,7 @@ pub struct CPU {
     pub program_counter: u16,
     pub register_x: u8,
     pub register_y: u8,
+    pub stack_pointer: u8,
     // 8 bit status register ->
     // Carry Flag (C), Zero Flag (Z), Interrupt Disable (I), Decimal Mode (D), Break Command (B), Overflow Flag (O), Negative Flag (N)
     pub status: u8,
@@ -28,6 +37,7 @@ impl CPU {
             program_counter: 0,
             register_x: 0,
             register_y: 0,
+            stack_pointer: INITIAL_STACK_POINTER_ADDRESS,
             status: 0,
             memory: [0; 0x10000],
         }
@@ -57,6 +67,7 @@ impl CPU {
         self.accumulator = 0;
         self.register_x = 0;
         self.register_y = 0;
+        self.stack_pointer = INITIAL_STACK_POINTER_ADDRESS;
         self.status = 0;
         // self.memory = [0; 0x10000];
 
@@ -208,6 +219,400 @@ impl CPU {
         self.update_zero_negative_flags(self.register_x)
     }
 
+    // ASL – Arithmetic Shift Left
+    pub fn asl(&mut self, addressing_mode: &AddressingMode) {
+        match addressing_mode {
+            AddressingMode::Accumulator => self.asl_accumulator(),
+            _ => self.asl_memory(addressing_mode),
+        }
+    }
+
+    fn asl_accumulator(&mut self) {
+        let carry = (self.accumulator & SIGN_BIT) != 0;
+        self.accumulator <<= 1;
+        self.update_carry_flag(carry);
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    fn asl_memory(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let carry = (value & SIGN_BIT) != 0;
+        let result = value << 1;
+        self.mem_write(addr, result);
+        self.update_carry_flag(carry);
+        self.update_zero_negative_flags(result);
+    }
+
+    // Branch instructions
+    pub fn bcc(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & CARRY_FLAG_MASK) == 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn bcs(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & CARRY_FLAG_MASK) != 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn beq(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & ZERO_FLAG_MASK) != 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn bne(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & ZERO_FLAG_MASK) == 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn bmi(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & NEGATIVE_FLAG_MASK) != 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn bpl(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & NEGATIVE_FLAG_MASK) == 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn bvc(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & OVERFLOW_FLAG_MASK) == 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    pub fn bvs(&mut self, addressing_mode: &AddressingMode) {
+        if (self.status & OVERFLOW_FLAG_MASK) != 0 {
+            let addr = self.get_operand_address(addressing_mode);
+            self.program_counter = addr;
+        }
+    }
+
+    // BIT – Bit Test
+    pub fn bit(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let result = self.accumulator & value;
+        
+        self.update_zero_flag(result);
+        self.update_negative_flag(value);
+        // Bit 6 of the value affects overflow flag
+        self.update_overflow_flag((value & OVERFLOW_BIT) != 0);
+    }
+
+    // BRK – Force Interrupt
+    pub fn brk(&mut self, _: &AddressingMode) {
+        // Set break flag
+        self.update_break_flag(true);
+        // Push PC+2 and status register to stack
+        // For now, just halt execution
+        self.program_counter = HALT_ADDRESS; // Signal to stop execution
+    }
+
+    // Clear flag instructions
+    pub fn clc(&mut self, _: &AddressingMode) {
+        self.update_carry_flag(false);
+    }
+
+    pub fn cld(&mut self, _: &AddressingMode) {
+        self.update_decimal_flag(false);
+    }
+
+    pub fn cli(&mut self, _: &AddressingMode) {
+        self.update_interrupt_disable_flag(false);
+    }
+
+    pub fn clv(&mut self, _: &AddressingMode) {
+        self.update_overflow_flag(false);
+    }
+
+    // Compare instructions
+    pub fn cmp(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let result = self.accumulator.wrapping_sub(value);
+        
+        self.update_carry_flag(self.accumulator >= value);
+        self.update_zero_negative_flags(result);
+    }
+
+    pub fn cpx(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let result = self.register_x.wrapping_sub(value);
+        
+        self.update_carry_flag(self.register_x >= value);
+        self.update_zero_negative_flags(result);
+    }
+
+    pub fn cpy(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let result = self.register_y.wrapping_sub(value);
+        
+        self.update_carry_flag(self.register_y >= value);
+        self.update_zero_negative_flags(result);
+    }
+
+    // Decrement instructions
+    pub fn dec(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let result = value.wrapping_sub(1);
+        self.mem_write(addr, result);
+        self.update_zero_negative_flags(result);
+    }
+
+    pub fn dex(&mut self, _: &AddressingMode) {
+        self.register_x = self.register_x.wrapping_sub(1);
+        self.update_zero_negative_flags(self.register_x);
+    }
+
+    pub fn dey(&mut self, _: &AddressingMode) {
+        self.register_y = self.register_y.wrapping_sub(1);
+        self.update_zero_negative_flags(self.register_y);
+    }
+
+    // EOR – Exclusive OR
+    pub fn eor(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        self.accumulator ^= value;
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    // Increment instructions
+    pub fn inc(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let result = value.wrapping_add(1);
+        self.mem_write(addr, result);
+        self.update_zero_negative_flags(result);
+    }
+
+    pub fn iny(&mut self, _: &AddressingMode) {
+        self.register_y = self.register_y.wrapping_add(1);
+        self.update_zero_negative_flags(self.register_y);
+    }
+
+    // Jump instructions
+    pub fn jmp(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        self.program_counter = addr;
+    }
+
+    pub fn jsr(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        // Push return address (PC-1) to stack
+        let return_addr = self.program_counter + 2;
+        self.mem_write(STACK_BASE_ADDRESS + self.stack_pointer as u16, (return_addr >> 8) as u8);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+        self.mem_write(STACK_BASE_ADDRESS + self.stack_pointer as u16, return_addr as u8);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+        self.program_counter = addr;
+    }
+
+    // LSR – Logical Shift Right
+    pub fn lsr(&mut self, addressing_mode: &AddressingMode) {
+        match addressing_mode {
+            AddressingMode::Accumulator => self.lsr_accumulator(),
+            _ => self.lsr_memory(addressing_mode),
+        }
+    }
+
+    fn lsr_accumulator(&mut self) {
+        let carry = (self.accumulator & LSB_BIT) != 0;
+        self.accumulator >>= 1;
+        self.update_carry_flag(carry);
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    fn lsr_memory(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let carry = (value & LSB_BIT) != 0;
+        let result = value >> 1;
+        self.mem_write(addr, result);
+        self.update_carry_flag(carry);
+        self.update_zero_negative_flags(result);
+    }
+
+    // NOP – No Operation
+    pub fn nop(&mut self, _: &AddressingMode) {
+        // Do nothing
+    }
+
+    // ORA – Logical Inclusive OR
+    pub fn ora(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        self.accumulator |= value;
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    // Stack operations
+    pub fn pha(&mut self, _: &AddressingMode) {
+        self.mem_write(STACK_BASE_ADDRESS + self.stack_pointer as u16, self.accumulator);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+    pub fn php(&mut self, _: &AddressingMode) {
+        // Push status with break flag set
+        let status_with_break = self.status | BREAK_FLAG_MASK;
+        self.mem_write(STACK_BASE_ADDRESS + self.stack_pointer as u16, status_with_break);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+    pub fn pla(&mut self, _: &AddressingMode) {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.accumulator = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    pub fn plp(&mut self, _: &AddressingMode) {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.status = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+    }
+
+    // Rotate instructions
+    pub fn rol(&mut self, addressing_mode: &AddressingMode) {
+        match addressing_mode {
+            AddressingMode::Accumulator => self.rol_accumulator(),
+            _ => self.rol_memory(addressing_mode),
+        }
+    }
+
+    fn rol_accumulator(&mut self) {
+        let old_carry = (self.status & CARRY_FLAG_MASK) != 0;
+        let new_carry = (self.accumulator & SIGN_BIT) != 0;
+        self.accumulator = (self.accumulator << 1) | (if old_carry { 1 } else { 0 });
+        self.update_carry_flag(new_carry);
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    fn rol_memory(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let old_carry = (self.status & CARRY_FLAG_MASK) != 0;
+        let new_carry = (value & SIGN_BIT) != 0;
+        let result = (value << 1) | (if old_carry { 1 } else { 0 });
+        self.mem_write(addr, result);
+        self.update_carry_flag(new_carry);
+        self.update_zero_negative_flags(result);
+    }
+
+    pub fn ror(&mut self, addressing_mode: &AddressingMode) {
+        match addressing_mode {
+            AddressingMode::Accumulator => self.ror_accumulator(),
+            _ => self.ror_memory(addressing_mode),
+        }
+    }
+
+    fn ror_accumulator(&mut self) {
+        let old_carry = (self.status & CARRY_FLAG_MASK) != 0;
+        let new_carry = (self.accumulator & LSB_BIT) != 0;
+        self.accumulator = (self.accumulator >> 1) | (if old_carry { SIGN_BIT } else { 0 });
+        self.update_carry_flag(new_carry);
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    fn ror_memory(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        let value = self.mem_read(addr);
+        let old_carry = (self.status & CARRY_FLAG_MASK) != 0;
+        let new_carry = (value & LSB_BIT) != 0;
+        let result = (value >> 1) | (if old_carry { SIGN_BIT } else { 0 });
+        self.mem_write(addr, result);
+        self.update_carry_flag(new_carry);
+        self.update_zero_negative_flags(result);
+    }
+
+    // Return instructions
+    pub fn rti(&mut self, _: &AddressingMode) {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.status = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        let pc_lo = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        let pc_hi = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+        self.program_counter = u16::from_le_bytes([pc_lo, pc_hi]);
+    }
+
+    pub fn rts(&mut self, _: &AddressingMode) {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        let pc_lo = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        let pc_hi = self.mem_read(STACK_BASE_ADDRESS + self.stack_pointer as u16);
+        self.program_counter = u16::from_le_bytes([pc_lo, pc_hi]) + 1;
+    }
+
+    // Set flag instructions
+    pub fn sec(&mut self, _: &AddressingMode) {
+        self.update_carry_flag(true);
+    }
+
+    pub fn sed(&mut self, _: &AddressingMode) {
+        self.update_decimal_flag(true);
+    }
+
+    pub fn sei(&mut self, _: &AddressingMode) {
+        self.update_interrupt_disable_flag(true);
+    }
+
+    // Store instructions
+    pub fn sta(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        self.mem_write(addr, self.accumulator);
+    }
+
+    pub fn stx(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        self.mem_write(addr, self.register_x);
+    }
+
+    pub fn sty(&mut self, addressing_mode: &AddressingMode) {
+        let addr = self.get_operand_address(addressing_mode);
+        self.mem_write(addr, self.register_y);
+    }
+
+    // Transfer instructions
+    pub fn tay(&mut self, _: &AddressingMode) {
+        self.register_y = self.accumulator;
+        self.update_zero_negative_flags(self.register_y);
+    }
+
+    pub fn tsx(&mut self, _: &AddressingMode) {
+        self.register_x = self.stack_pointer;
+        self.update_zero_negative_flags(self.register_x);
+    }
+
+    pub fn txa(&mut self, _: &AddressingMode) {
+        self.accumulator = self.register_x;
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
+    pub fn txs(&mut self, _: &AddressingMode) {
+        self.stack_pointer = self.register_x;
+    }
+
+    pub fn tya(&mut self, _: &AddressingMode) {
+        self.accumulator = self.register_y;
+        self.update_zero_negative_flags(self.accumulator);
+    }
+
     fn add_to_accumulator(&mut self, value: u8) {
         let carry = ((self.status & CARRY_FLAG_MASK) != 0) as u8;
 
@@ -244,6 +649,18 @@ impl CPU {
 
     fn update_overflow_flag(&mut self, overflow: bool) {
         self.update_status_flag(OVERFLOW_FLAG_MASK, overflow);
+    }
+
+    fn update_interrupt_disable_flag(&mut self, disable: bool) {
+        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, disable);
+    }
+
+    fn update_decimal_flag(&mut self, decimal: bool) {
+        self.update_status_flag(DECIMAL_FLAG_MASK, decimal);
+    }
+
+    fn update_break_flag(&mut self, break_flag: bool) {
+        self.update_status_flag(BREAK_FLAG_MASK, break_flag);
     }
 
     fn update_status_flag(&mut self, mask: u8, condition: bool) {
