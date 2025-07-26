@@ -7,6 +7,9 @@ const PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;
 
 const CARRY_FLAG_MASK: u8 = 0b0000_0001;
 const ZERO_FLAG_MASK: u8 = 0b0000_0010;
+const INTERRUPT_DISABLE_FLAG_MASK: u8 = 0b0000_0100;
+const DECIMAL_MODE_FLAG_MASK: u8 = 0b0000_1000;
+const BREAK_FLAG_MASK: u8 = 0b0001_0000;
 const OVERFLOW_FLAG_MASK: u8 = 0b0100_0000;
 const NEGATIVE_FLAG_MASK: u8 = 0b1000_0000;
 
@@ -451,10 +454,9 @@ impl CPU {
     }
 
     pub fn php(&mut self, _: &AddressingMode) {
-        // Set break flags when pushing
+        // Set break flag when pushing
         let mut flags = self.status;
-        flags |= 0b0001_0000; // Break flag
-        flags |= 0b0010_0000; // Break2 flag
+        flags |= BREAK_FLAG_MASK; // Break flag
         self.stack_push(flags);
     }
 
@@ -465,9 +467,8 @@ impl CPU {
 
     pub fn plp(&mut self, _: &AddressingMode) {
         self.status = self.stack_pop();
-        // Clear break flags
-        self.status &= !0b0001_0000; // Break flag
-        self.status |= 0b0010_0000;  // Break2 flag
+        // Clear break flag
+        self.status &= !BREAK_FLAG_MASK; // Break flag
     }
 
     pub fn jmp(&mut self, addressing_mode: &AddressingMode) {
@@ -499,9 +500,8 @@ impl CPU {
 
     pub fn rti(&mut self, _: &AddressingMode) {
         self.status = self.stack_pop();
-        // Clear break flags
-        self.status &= !0b0001_0000; // Break flag
-        self.status |= 0b0010_0000;  // Break2 flag
+        // Clear break flag
+        self.status &= !BREAK_FLAG_MASK; // Break flag
         
         let return_addr = self.stack_pop_u16();
         self.program_counter = return_addr;
@@ -512,11 +512,11 @@ impl CPU {
     }
 
     pub fn sed(&mut self, _: &AddressingMode) {
-        self.status |= 0b0000_1000; // Decimal flag
+        self.update_status_flag(DECIMAL_MODE_FLAG_MASK, true);
     }
 
     pub fn sei(&mut self, _: &AddressingMode) {
-        self.status |= 0b0000_0100; // Interrupt disable flag
+        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, true);
     }
 
     pub fn clc(&mut self, _: &AddressingMode) {
@@ -524,11 +524,11 @@ impl CPU {
     }
 
     pub fn cld(&mut self, _: &AddressingMode) {
-        self.status &= !0b0000_1000; // Decimal flag
+        self.update_status_flag(DECIMAL_MODE_FLAG_MASK, false);
     }
 
     pub fn cli(&mut self, _: &AddressingMode) {
-        self.status &= !0b0000_0100; // Interrupt disable flag
+        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, false);
     }
 
     pub fn clv(&mut self, _: &AddressingMode) {
@@ -544,11 +544,10 @@ impl CPU {
         self.stack_push_u16(self.program_counter);
         
         let mut flags = self.status;
-        flags |= 0b0001_0000; // Break flag
-        flags |= 0b0010_0000; // Break2 flag
+        flags |= BREAK_FLAG_MASK; // Break flag
         self.stack_push(flags);
         
-        self.status |= 0b0000_0100; // Set interrupt disable flag
+        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, true);
         
         // Jump to interrupt vector
         self.program_counter = self.mem_read_u16(0xFFFE);
