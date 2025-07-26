@@ -112,14 +112,12 @@ impl CPU {
             let handler = dispatch.handler;
             handler(self, &instruction.addressing_mode);
 
-            // Don't increment PC for instructions that modify it themselves
+           // These instructions handle their own PC updates
             match instruction.mnemonic {
-                Mnemonic::JMP | Mnemonic::JSR | Mnemonic::RTS | Mnemonic::RTI | Mnemonic::BRK => {
-                    // These instructions handle their own PC updates
-                }
+                Mnemonic::JMP | Mnemonic::JSR | Mnemonic::RTS | Mnemonic::RTI | Mnemonic::BRK |
                 Mnemonic::BCC | Mnemonic::BCS | Mnemonic::BEQ | Mnemonic::BNE | 
                 Mnemonic::BMI | Mnemonic::BPL | Mnemonic::BVC | Mnemonic::BVS => {
-                    // Branch instructions handle their own PC updates
+    
                 }
                 _ => {
                     self.program_counter += instruction.bytes as u16;
@@ -456,9 +454,8 @@ impl CPU {
     }
 
     pub fn php(&mut self, _: &AddressingMode) {
-        // Set break flag when pushing
         let mut flags = self.status;
-        flags |= BREAK_FLAG_MASK; // Break flag
+        flags |= BREAK_FLAG_MASK;
         self.stack_push(flags);
     }
 
@@ -469,8 +466,7 @@ impl CPU {
 
     pub fn plp(&mut self, _: &AddressingMode) {
         self.status = self.stack_pop();
-        // Clear break flag
-        self.status &= !BREAK_FLAG_MASK; // Break flag
+        self.clear_break_flag();
     }
 
     pub fn jmp(&mut self, addressing_mode: &AddressingMode) {
@@ -488,7 +484,7 @@ impl CPU {
     }
 
     pub fn jsr(&mut self, addressing_mode: &AddressingMode) {
-        let return_addr = self.program_counter + 2; // Address of next instruction
+        let return_addr = self.program_counter + 2;
         self.stack_push_u16(return_addr);
         
         let addr = self.get_operand_address(addressing_mode);
@@ -497,13 +493,12 @@ impl CPU {
 
     pub fn rts(&mut self, _: &AddressingMode) {
         let return_addr = self.stack_pop_u16();
-        self.program_counter = return_addr + 1; // RTS returns to address + 1
+        self.program_counter = return_addr + 1; 
     }
 
     pub fn rti(&mut self, _: &AddressingMode) {
         self.status = self.stack_pop();
-        // Clear break flag
-        self.status &= !BREAK_FLAG_MASK; // Break flag
+        self.clear_break_flag();
         
         let return_addr = self.stack_pop_u16();
         self.program_counter = return_addr;
@@ -514,11 +509,11 @@ impl CPU {
     }
 
     pub fn sed(&mut self, _: &AddressingMode) {
-        self.update_status_flag(DECIMAL_MODE_FLAG_MASK, true);
+        self.update_decimal_flag(true);
     }
 
     pub fn sei(&mut self, _: &AddressingMode) {
-        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, true);
+        self.update_interrupt_disable_flag(true);
     }
 
     pub fn clc(&mut self, _: &AddressingMode) {
@@ -526,11 +521,11 @@ impl CPU {
     }
 
     pub fn cld(&mut self, _: &AddressingMode) {
-        self.update_status_flag(DECIMAL_MODE_FLAG_MASK, false);
+        self.update_decimal_flag(false);
     }
 
     pub fn cli(&mut self, _: &AddressingMode) {
-        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, false);
+        self.update_interrupt_disable_flag(false);
     }
 
     pub fn clv(&mut self, _: &AddressingMode) {
@@ -542,17 +537,16 @@ impl CPU {
     }
 
     pub fn brk(&mut self, _: &AddressingMode) {
-        self.program_counter += 1; // BRK is 1 byte
+        self.program_counter += 1;
         self.stack_push_u16(self.program_counter);
         
         let mut flags = self.status;
-        flags |= BREAK_FLAG_MASK; // Break flag
+        flags |= BREAK_FLAG_MASK;
         self.stack_push(flags);
         
-        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, true);
-        self.update_status_flag(BREAK_FLAG_MASK, true); // Set break flag in status register
+        self.update_interrupt_disable_flag(true);
+        self.update_break_flag(true);
         
-        // Jump to interrupt vector
         self.program_counter = self.mem_read_u16(0xFFFE);
     }
 
@@ -685,8 +679,24 @@ impl CPU {
         self.update_status_flag(OVERFLOW_FLAG_MASK, overflow);
     }
 
+    fn update_decimal_flag(&mut self, decimal: bool) {
+        self.update_status_flag(DECIMAL_MODE_FLAG_MASK, decimal);
+    }
+
+    fn update_interrupt_disable_flag(&mut self, interrupt_disable: bool) {
+        self.update_status_flag(INTERRUPT_DISABLE_FLAG_MASK, interrupt_disable);
+    }
+
+    fn update_break_flag(&mut self, break_flag: bool) {
+        self.update_status_flag(BREAK_FLAG_MASK, break_flag);
+    }
+
     fn update_status_flag(&mut self, mask: u8, condition: bool) {
         self.status = (self.status & !mask) | (if condition { mask } else { 0 });
+    }
+
+    fn clear_break_flag(&mut self) {
+        self.status &= !BREAK_FLAG_MASK;
     }
 }
 
@@ -1610,8 +1620,7 @@ mod test {
         cpu.reset();
         cpu.status = 0xFF;
         cpu.run();
-        // Status should be restored, but break flag should be cleared
-        assert_eq!(cpu.status, 0xEF); // 0xFF & !BREAK_FLAG_MASK
+        assert_eq!(cpu.status, 0xEF); // Status restored with break flag cleared
     }
 
     // Jump Tests
@@ -1747,13 +1756,12 @@ mod test {
         let mut cpu = CPU::new();
         cpu.load_rom(vec![0x40, 0x00]); // RTI
         cpu.reset();
-        // Set up stack with return address and status
-        cpu.stack_pointer = 0xFB; // Adjust for the values we're pushing
-        cpu.memory[0x01FC] = 0xFF; // Status register (with break flag)
+        cpu.stack_pointer = 0xFB;
+        cpu.memory[0x01FC] = 0xFF; // Status register
         cpu.memory[0x01FD] = 0x34; // Return address low byte
         cpu.memory[0x01FE] = 0x12; // Return address high byte
         cpu.run();
         assert_eq!(cpu.program_counter, 0x1234);
-        assert_eq!(cpu.status, 0xEF); // Status restored, break flag cleared
+        assert_eq!(cpu.status, 0xEF); // Status restored with break flag cleared
     }
 }
