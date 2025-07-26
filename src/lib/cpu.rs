@@ -196,9 +196,7 @@ impl CPU {
         let addr = self.get_operand_address(addressing_mode);
         let m = self.mem_read(addr);
 
-        let (inverse_m, _) = (!m).overflowing_add(1);
-
-        self.add_to_accumulator(inverse_m);
+        self.add_to_accumulator(m.wrapping_neg().wrapping_sub(1));
     }
 
     pub fn tax(&mut self, _: &AddressingMode) {
