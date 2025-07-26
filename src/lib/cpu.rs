@@ -7,6 +7,7 @@ const DECIMAL_MODE_FLAG_MASK: u8 = 0b0000_1000;
 const BREAK_FLAG_MASK: u8 = 0b0001_0000;
 const OVERFLOW_FLAG_MASK: u8 = 0b0100_0000;
 const NEGATIVE_FLAG_MASK: u8 = 0b1000_0000;
+
 const SIGN_BIT: u8 = NEGATIVE_FLAG_MASK;
 
 const PROGRAM_START_ADDRESS: usize = 0x0600;
@@ -749,39 +750,33 @@ mod test {
     #[test]
     fn test_get_operand_address() {
         let mut cpu = CPU::new();
-        cpu.load_rom(vec![0xA9, 0x42, 0x00]); // LDA immediate
+        cpu.load_rom(vec![0xA9, 0x42, 0x00]);
         cpu.reset();
         
-        // Test Immediate addressing mode
         let addr = cpu.get_operand_address(&AddressingMode::Immediate);
-        assert_eq!(addr, 0x0601); // PC + 1
+        assert_eq!(addr, 0x0601);
         
-        // Test ZeroPage addressing mode
         cpu.program_counter = 0x0600;
-        cpu.memory[0x0601] = 0x10; // Operand byte
+        cpu.memory[0x0601] = 0x10;
         let addr = cpu.get_operand_address(&AddressingMode::ZeroPage);
         assert_eq!(addr, 0x10);
         
-        // Test ZeroPage_X addressing mode
         cpu.register_x = 0x05;
         let addr = cpu.get_operand_address(&AddressingMode::ZeroPage_X);
-        assert_eq!(addr, 0x15); // 0x10 + 0x05
+        assert_eq!(addr, 0x15);
         
-        // Test Absolute addressing mode
-        cpu.memory[0x0601] = 0x34; // Low byte
-        cpu.memory[0x0602] = 0x12; // High byte
+        cpu.memory[0x0601] = 0x34;
+        cpu.memory[0x0602] = 0x12;
         let addr = cpu.get_operand_address(&AddressingMode::Absolute);
         assert_eq!(addr, 0x1234);
         
-        // Test Absolute_X addressing mode
         cpu.register_x = 0x01;
         let addr = cpu.get_operand_address(&AddressingMode::Absolute_X);
-        assert_eq!(addr, 0x1235); // 0x1234 + 0x01
+        assert_eq!(addr, 0x1235);
         
-        // Test Relative addressing mode
-        cpu.memory[0x0601] = 0x02; // Positive offset
+        cpu.memory[0x0601] = 0x02;
         let addr = cpu.get_operand_address(&AddressingMode::Relative);
-        assert_eq!(addr, 0x0604); // PC + 1 + 1 + offset
+        assert_eq!(addr, 0x0604);
     }
 
     // Opcodes in instruction.rs order tests
