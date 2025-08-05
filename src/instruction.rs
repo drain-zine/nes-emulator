@@ -320,7 +320,7 @@ const DISPATCHES: &[Dispatch] = &[
     instruction!(TYA, 0x98, 1, 2, Implied, tya),
 ];
 
-const fn generate_instruction_table() -> [Option<Dispatch>; 0x100] {
+const fn generate_dispatch_table() -> [Option<Dispatch>; 0x100] {
     let mut table: [Option<Dispatch>; 0x100] = [None; 0x100];
     let mut i = 0;
 
@@ -333,4 +333,4 @@ const fn generate_instruction_table() -> [Option<Dispatch>; 0x100] {
     table
 }
 
-pub static DISPATCH_TABLE: [Option<Dispatch>; 0x100] = generate_instruction_table();
+pub static DISPATCH_TABLE: [Option<Dispatch>; 0x100] = generate_dispatch_table();
