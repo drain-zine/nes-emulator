@@ -1,9 +1,13 @@
-mod lib;
-use lib::cpu::CPU;
+mod cpu;
+mod bus;
+mod instruction;
+
+use cpu::CPU;
+use bus::Bus;
+
 use rand::Rng;
 use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, EventPump};
 
-use crate::lib::bus::Bus;
 
 fn main() {
     

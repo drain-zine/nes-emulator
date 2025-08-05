@@ -1,6 +1,6 @@
 /* https://www.nesdev.org/obelisk-6502-guide/reference.html#LDX */
 
-use super::cpu::CPU;
+use crate::cpu::CPU;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mnemonic {

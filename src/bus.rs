@@ -1,4 +1,3 @@
-// Memory map constants
 const RAM_START: u16 = 0x0000;
 const RAM_MIRRORS_END: u16 = 0x1FFF;
 const PPU_START: u16 = 0x2000;

@@ -1,6 +1,5 @@
-use crate::lib::bus::{Bus};
-
-use super::instruction::{AddressingMode, Mnemonic, DISPATCH_TABLE};
+use crate::instruction::{AddressingMode, Mnemonic, DISPATCH_TABLE};
+use crate::bus::Bus;
 
 const CARRY_FLAG_MASK: u8 = 0b0000_0001;
 const ZERO_FLAG_MASK: u8 = 0b0000_0010;
