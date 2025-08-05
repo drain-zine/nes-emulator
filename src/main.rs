@@ -3,6 +3,8 @@ use lib::cpu::CPU;
 use rand::Rng;
 use sdl2::{event::Event, keyboard::Keycode, pixels::{Color, PixelFormatEnum}, EventPump};
 
+use crate::lib::bus::Bus;
+
 fn main() {
     
 let game_code = vec![
@@ -43,7 +45,7 @@ let sdl_context = sdl2::init().unwrap();
    let mut texture = creator
        .create_texture_target(PixelFormatEnum::RGB24, 32, 32).unwrap();
 
-    let mut cpu = CPU::new();
+    let mut cpu = CPU::new(Bus::new());
     cpu.load_rom(game_code);
     cpu.reset();
 

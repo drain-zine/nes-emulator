@@ -1,3 +1,5 @@
+use crate::lib::bus::{Bus};
+
 use super::instruction::{AddressingMode, Mnemonic, DISPATCH_TABLE};
 
 const CARRY_FLAG_MASK: u8 = 0b0000_0001;
@@ -25,11 +27,11 @@ pub struct CPU {
     // Carry Flag (C), Zero Flag (Z), Interrupt Disable (I), Decimal Mode (D), Break Command (B), X, Overflow Flag (O), Negative Flag (N)
     pub status: u8,
     pub stack_pointer: u8,
-    memory: [u8; 0x10000],
+    pub bus: Bus,
 }
 
 impl CPU {
-    pub fn new() -> Self {
+    pub fn new(bus: Bus) -> Self {
         CPU {
             accumulator: 0,
             program_counter: 0,
@@ -37,28 +39,24 @@ impl CPU {
             register_y: 0,
             status: INITIAL_STATUS,
             stack_pointer: STACK_START_ADDRESS,
-            memory: [0; 0x10000],
+            bus,
         }
     }
 
     pub fn mem_read(&self, addr: u16) -> u8 {
-        self.memory[addr as usize]
-    }
-
-    fn mem_read_u16(&self, addr: u16) -> u16 {
-        let lo = self.mem_read(addr);
-        let hi = self.mem_read(addr.wrapping_add(1));
-        u16::from_le_bytes([lo, hi])
+        self.bus.mem_read(addr)
     }
 
     pub fn mem_write(&mut self, addr: u16, data: u8) {
-        self.memory[addr as usize] = data;
+        self.bus.mem_write(addr, data);
     }
 
-    fn mem_write_u16(&mut self, addr: u16, data: u16) {
-        let [lo, hi] = data.to_le_bytes();
-        self.mem_write(addr, lo);
-        self.mem_write(addr.wrapping_add(1), hi);
+    pub fn mem_read_u16(&self, addr: u16) -> u16 {
+        self.bus.mem_read_u16(addr)
+    }
+
+    pub fn mem_write_u16(&mut self, addr: u16, data: u16) {
+        self.bus.mem_write_u16(addr, data);
     }
 
     pub fn reset(&mut self) {
@@ -72,8 +70,11 @@ impl CPU {
     }
 
     pub fn load_rom(&mut self, program: Vec<u8>) {
-        self.memory[PROGRAM_START_ADDRESS..PROGRAM_START_ADDRESS + program.len()]
-            .copy_from_slice(&program);
+        for (i, byte) in program.iter().enumerate() {
+            let addr = PROGRAM_START_ADDRESS + i;
+            self.mem_write(addr as u16, *byte);
+        }
+
         self.mem_write_u16(PROGRAM_COUNTER_ADDRESS, PROGRAM_START_ADDRESS as u16);
     }
 
@@ -96,7 +97,7 @@ impl CPU {
             let opcode = self.mem_read(self.program_counter);
 
             // Stop on two consecutive 0x00 bytes
-            if opcode == 0 && self.mem_read(self.program_counter + 1) == 0 && self.program_counter != 0x0600 {
+            if opcode == 0 && self.mem_read(self.program_counter + 1) == 0 && self.program_counter != PROGRAM_START_ADDRESS as u16 {
                 return;
             }
 
